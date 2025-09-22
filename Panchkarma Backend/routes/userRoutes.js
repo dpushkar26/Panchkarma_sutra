@@ -54,6 +54,159 @@ router.get('/practitioners', async (req, res) => {
   }
 });
 
+// Get patients
+router.get('/patients', async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const query = { 
+      role: 'patient',
+      isActive: true
+    };
+
+    const skip = (page - 1) * limit;
+
+    const [patients, totalCount] = await Promise.all([
+      User.find(query)
+        .select('profile email phone createdAt')
+        .sort({ 'profile.firstName': 1 })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      User.countDocuments(query)
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        patients,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalCount / limit),
+          totalCount,
+          hasMore: skip + patients.length < totalCount
+        }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch patients',
+      error: error.message
+    });
+  }
+});
+
+// Add therapy to practitioner's offerings
+router.post('/therapies/add', authenticate, async (req, res) => {
+  try {
+    const { therapyId } = req.body;
+    const userId = req.user.id;
+    
+    if (req.user.role !== 'practitioner') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only practitioners can add therapies'
+      });
+    }
+    
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    if (!user.practitionerInfo.offeredTherapies) {
+      user.practitionerInfo.offeredTherapies = [];
+    }
+    
+    if (!user.practitionerInfo.offeredTherapies.includes(therapyId)) {
+      user.practitionerInfo.offeredTherapies.push(therapyId);
+      await user.save();
+    }
+    
+    res.json({
+      success: true,
+      message: 'Therapy added successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to add therapy',
+      error: error.message
+    });
+  }
+});
+
+// Remove therapy from practitioner's offerings
+router.delete('/therapies/:therapyId', authenticate, async (req, res) => {
+  try {
+    const { therapyId } = req.params;
+    const userId = req.user.id;
+    
+    if (req.user.role !== 'practitioner') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only practitioners can remove therapies'
+      });
+    }
+    
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    if (user.practitionerInfo.offeredTherapies) {
+      user.practitionerInfo.offeredTherapies = user.practitionerInfo.offeredTherapies.filter(
+        id => id.toString() !== therapyId
+      );
+      await user.save();
+    }
+    
+    res.json({
+      success: true,
+      message: 'Therapy removed successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to remove therapy',
+      error: error.message
+    });
+  }
+});
+
+// Get user profile by ID
+router.get('/profile/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const user = await User.findById(id).select('-password');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        user
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user profile',
+      error: error.message
+    });
+  }
+});
+
 // Approve practitioner (Admin only)
 router.patch('/:id/approve', 
   authenticate, 
